@@ -6,10 +6,11 @@
 #        LIST=examples/xiaomi-tv.txt ./restore.sh <tv-ip>   use a different list (default: packages.txt)
 set -u
 if [ $# -lt 1 ]; then
-  echo "Usage: $0 <tv-ip> [package]"
+  echo "Usage: $0 <tv-ip>[:port] [package]"
   exit 1
 fi
-S="$1:5555"
+# Accepts <ip> (port 5555, classic network debugging) or <ip>:<port> (Wireless debugging, Android 11+/Google TV)
+case "$1" in *:*) S="$1" ;; *) S="$1:5555" ;; esac
 LIST="${LIST:-$(dirname "$0")/packages.txt}"
 
 adb connect "$S"

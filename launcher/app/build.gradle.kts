@@ -1,3 +1,10 @@
+import java.util.Properties
+
+// Trending settings live in local.properties (gitignored, see local.properties.example): tmdb.key, tmdb.region, tmdb.feed
+val localProperties = Properties().apply {
+    rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -14,6 +21,9 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+        buildConfigField("String", "TMDB_KEY", "\"${localProperties.getProperty("tmdb.key", "")}\"")
+        buildConfigField("String", "TMDB_REGION", "\"${localProperties.getProperty("tmdb.region", "")}\"")
+        buildConfigField("String", "TMDB_FEED", "\"${localProperties.getProperty("tmdb.feed", "all")}\"")
     }
 
     buildTypes {
@@ -34,6 +44,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

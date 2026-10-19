@@ -1,8 +1,10 @@
 package me.prince.launcher
 
+import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ResolveInfo
+import android.provider.Settings
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -11,15 +13,19 @@ import androidx.compose.ui.graphics.luminance
 import androidx.core.graphics.drawable.toBitmap
 import androidx.palette.graphics.Palette
 
-// The favourites shelf, in this order; anything not installed is skipped.
-// Change it to your apps (find package names with: adb shell pm list packages -3)
-private val FAVOURITES = listOf(
+// Favourites until changed from the long-press menu (Move / Add / Remove); anything not installed is skipped.
+// Find package names with: adb shell pm list packages -3
+private val DEFAULT_FAVOURITES = listOf(
     "com.netflix.ninja",                  // Netflix
     "com.google.android.youtube.tv",      // YouTube
     "com.amazon.amazonvideo.livingroom",  // Prime Video
     "in.startv.hotstar",                  // JioHotstar
     "com.disney.disneyplus",              // Disney+
 )
+
+private const val PREFS = "launcher"
+private const val KEY_FAVOURITES = "favourites"
+private const val RECENT_DAYS = 14L
 
 private const val BANNER_WIDTH = 400
 private const val BANNER_HEIGHT = 225
@@ -32,22 +38,52 @@ data class TvApp(
     val hasBanner: Boolean,
     val glow: Color,
     val launchIntent: Intent,
+    val isInput: Boolean = false,
+    // Second line on tiles without a banner, e.g. the HDMI port
+    val detail: String? = null,
 )
 
-data class AppShelves(val favourites: List<TvApp>, val others: List<TvApp>)
-
-fun loadApps(context: Context): AppShelves {
+// All TV apps, alphabetical
+fun loadApps(context: Context): List<TvApp> {
     val pm = context.packageManager
     val query = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
     val apps = pm.queryIntentActivities(query, 0)
         .filter { it.activityInfo.packageName != context.packageName }
         .distinctBy { it.activityInfo.packageName }
         .map { toTvApp(context, it) }
+    return apps.sortedBy { it.label.lowercase() }
+}
 
-    val byPackage = apps.associateBy { it.packageName }
-    val favourites = FAVOURITES.mapNotNull { byPackage[it] }
-    val others = apps.filter { it.packageName !in FAVOURITES }.sortedBy { it.label.lowercase() }
-    return AppShelves(favourites, others)
+fun loadFavourites(context: Context): List<String> =
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .getString(KEY_FAVOURITES, null)
+        ?.split(',')
+        ?.filter { it.isNotBlank() }
+        ?: DEFAULT_FAVOURITES
+
+fun saveFavourites(context: Context, packages: List<String>) {
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(KEY_FAVOURITES, packages.joinToString(","))
+        .apply()
+}
+
+// Most recent first. Empty until granted: adb shell appops set me.prince.launcher GET_USAGE_STATS allow
+fun recentPackages(context: Context): List<String> {
+    val usage = context.getSystemService(UsageStatsManager::class.java)
+    val end = System.currentTimeMillis()
+    // The screensaver counts as foreground use every time it runs
+    val screensavers = Settings.Secure.getString(context.contentResolver, "screensaver_components")
+        .orEmpty()
+        .split(',')
+        .map { it.substringBefore('/') }
+    return usage.queryUsageStats(UsageStatsManager.INTERVAL_BEST, end - RECENT_DAYS * 86_400_000L, end)
+        .filter { it.totalTimeInForeground > 0 && it.packageName !in screensavers }
+        .groupBy { it.packageName }
+        .mapValues { (_, stats) -> stats.maxOf { it.lastTimeUsed } }
+        .entries
+        .sortedByDescending { it.value }
+        .map { it.key }
 }
 
 private fun toTvApp(context: Context, info: ResolveInfo): TvApp {
